@@ -297,27 +297,22 @@ function renderStandings() {
 
 /* ---- Render fixtures ---- */
 function renderFixtures() {
-  var upc = allMatches.filter(function(m) { return m.status === 'TIMED' || m.status === 'SCHEDULED'; });
+  var now = new Date();
+  var todayStr = now.toISOString().slice(0, 10);
+  var limitDate = new Date(now);
+  limitDate.setDate(limitDate.getDate() + 3);
+  var limitStr = limitDate.toISOString().slice(0, 10);
+  var upc = allMatches.filter(function(m) {
+    if (m.status !== 'TIMED' && m.status !== 'SCHEDULED') return false;
+    var d = (m.utcDate || '').slice(0, 10);
+    return d >= todayStr && d <= limitStr;
+  });
   var byD = groupByDay(upc);
   var days = Object.keys(byD).sort();
-  fixturesByDay = byD;
-  if (!days.length) { document.getElementById('tab-fixtures').innerHTML = '<div class="loading">No upcoming fixtures.</div>'; return; }
-  var fbar = '<div class="fbar"><button class="fbar-btn active" onclick="filterDay(\'all\', this)">All</button>';
-  days.slice(0, 14).forEach(function(d) { fbar += '<button class="fbar-btn" onclick="filterDay(\'' + d + '\', this)">' + fmtShort(d) + '</button>'; });
-  fbar += '</div>';
-  document.getElementById('tab-fixtures').innerHTML = fbar + '<div id="flist">' + renderDays(byD, days) + '</div>';
+  if (!days.length) { document.getElementById('tab-fixtures').innerHTML = '<div class="loading">No fixtures in the next 3 days.</div>'; return; }
+  document.getElementById('tab-fixtures').innerHTML = renderDays(byD, days);
 }
 
-function filterDay(d, el) {
-  document.querySelectorAll('.fbar .fbar-btn').forEach(function(b) { b.classList.remove('active'); });
-  el.classList.add('active');
-  var days = d === 'all' ? Object.keys(fixturesByDay).sort() : [d];
-  var sub = {};
-  days.forEach(function(x) { sub[x] = fixturesByDay[x]; });
-  document.getElementById('flist').innerHTML = renderDays(sub, days);
-}
-
-/* ---- Render results ---- */
 function renderResults() {
   var fin = allMatches.filter(function(m) { return m.status === 'FINISHED'; }).reverse();
   if (!fin.length) { document.getElementById('tab-results').innerHTML = '<div class="loading">No results yet.</div>'; return; }
