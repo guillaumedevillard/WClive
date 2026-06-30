@@ -36,12 +36,6 @@
     border-right: none; font-family: Arial, sans-serif;
   }
   .tab-btn.active { color: var(--hs-red); border-bottom-color: var(--hs-red); }
-  .live-badge {
-    background: var(--hs-red); color: #fff; font-size: 9px; font-weight: 700;
-    border-radius: 3px; padding: 1px 5px; margin-left: 4px;
-    vertical-align: middle; display: none;
-  }
-  /* Progress bar showing scroll/wait progress */
   .progress-bar {
     position: fixed; top: 40px; left: 0; right: 0; height: 3px;
     background: var(--border); z-index: 99;
@@ -127,7 +121,6 @@
   <button class="tab-btn active" id="tbtn-standings">Knockout</button>
   <button class="tab-btn" id="tbtn-fixtures">Fixtures</button>
   <button class="tab-btn" id="tbtn-results">Results</button>
-  <button class="tab-btn" id="tbtn-live">Live <span class="live-badge" id="live-badge"></span></button>
 </div>
 
 <div class="progress-bar"><div class="progress-fill" id="prog"></div></div>
@@ -137,7 +130,6 @@
     <div class="tab-panel active" id="tab-standings"><div class="loading"><span class="spinner"></span>Loading...</div></div>
     <div class="tab-panel" id="tab-fixtures"><div class="loading"><span class="spinner"></span>Loading...</div></div>
     <div class="tab-panel" id="tab-results"><div class="loading"><span class="spinner"></span>Loading...</div></div>
-    <div class="tab-panel" id="tab-live"><div class="loading"><span class="spinner"></span>Loading...</div></div>
   </div>
 </div>
 
@@ -150,7 +142,7 @@ var allMatches = [];
 var standingsData = null;
 var fixturesByDay = {};
 
-var TABS = ['standings', 'fixtures', 'results', 'live'];
+var TABS = ['standings', 'fixtures', 'results'];
 var currentTab = 0;
 var autoTimer = null;
 var dataReady = false;
@@ -176,7 +168,6 @@ function loadAll() {
     renderKnockout();
     renderFixtures();
     renderResults();
-    renderLive();
     dataReady = true;
     startAuto();
   }).catch(function(e) {
@@ -292,8 +283,21 @@ function renderKnockout() {
     if (m.stage && m.stage !== 'GROUP_STAGE') { (byStage[m.stage] = byStage[m.stage] || []).push(m); }
   });
 
-  var rounds = MAIN_STAGES.filter(function(s) { return byStage[s] && byStage[s].length; });
-  if (!rounds.length) { document.getElementById('tab-standings').innerHTML = '<div class="loading">No knockout matches yet. They unlock once the group stage finishes.</div>'; return; }
+  var allRounds = MAIN_STAGES.filter(function(s) { return byStage[s] && byStage[s].length; });
+  if (!allRounds.length) { document.getElementById('tab-standings').innerHTML = '<div class="loading">No knockout matches yet. They unlock once the group stage finishes.</div>'; return; }
+
+  // ---- keep only the active round + the next one, sliding the window forward as each round kicks off ----
+  var now = new Date();
+  function stageHasStarted(stage) {
+    return byStage[stage].some(function(m) {
+      if (['IN_PLAY', 'PAUSED', 'HALFTIME', 'FINISHED'].indexOf(m.status) !== -1) return true;
+      if (m.utcDate && new Date(m.utcDate) <= now) return true;
+      return false;
+    });
+  }
+  var activeIdx = 0;
+  while (activeIdx + 1 < allRounds.length && stageHasStarted(allRounds[activeIdx + 1])) activeIdx++;
+  var rounds = allRounds.slice(activeIdx, activeIdx + 2);
 
   // ---- vertical positions, centred between each round's feeder pair ----
   var positions = {};
@@ -411,21 +415,11 @@ function renderFixtures() {
 }
 
 function renderResults() {
-  var fin = allMatches.filter(function(m) { return m.status === 'FINISHED'; }).reverse();
-  if (!fin.length) { document.getElementById('tab-results').innerHTML = '<div class="loading">No results yet.</div>'; return; }
+  var fin = allMatches.filter(function(m) { return m.status === 'FINISHED' && m.stage && m.stage !== 'GROUP_STAGE'; }).reverse();
+  if (!fin.length) { document.getElementById('tab-results').innerHTML = '<div class="loading">No knockout results yet.</div>'; return; }
   var byD = groupByDay(fin);
   var days = Object.keys(byD).sort().reverse();
   document.getElementById('tab-results').innerHTML = renderDays(byD, days);
-}
-
-/* ---- Render live ---- */
-function renderLive() {
-  var live = allMatches.filter(function(m) { return m.status === 'IN_PLAY' || m.status === 'PAUSED' || m.status === 'HALFTIME'; });
-  var badge = document.getElementById('live-badge');
-  if (live.length) { badge.style.display = 'inline'; badge.textContent = live.length; } else { badge.style.display = 'none'; }
-  if (!live.length) { document.getElementById('tab-live').innerHTML = '<div class="loading">No matches live right now.</div>'; return; }
-  var byD = groupByDay(live);
-  document.getElementById('tab-live').innerHTML = renderDays(byD, Object.keys(byD).sort());
 }
 
 /* ---- Helpers ---- */
