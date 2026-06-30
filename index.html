@@ -65,22 +65,11 @@
   .tab-panel { display: none; padding: 16px 20px 40px; min-height: 100%; }
   .tab-panel.active { display: block; }
 
-  /* Groups */
-  .grp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
-  .grp-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
-  .grp-hdr { background: var(--hs-dark); color: var(--hs-mint); font-size: 11px; font-weight: 700; padding: 7px 12px; letter-spacing: 0.06em; text-transform: uppercase; }
-  .grp-table { width: 100%; border-collapse: collapse; font-size: 11px; }
-  .grp-table th { color: var(--text-faint); font-weight: 400; text-align: center; padding: 5px 4px; border-bottom: 1px solid var(--border); font-size: 10px; }
-  .grp-table th:first-child { text-align: left; padding-left: 10px; }
-  .grp-table td { padding: 6px 4px; text-align: center; border-bottom: 1px solid #f0f0f0; color: var(--text); }
-  .grp-table td.tn { text-align: left; padding-left: 10px; display: flex; align-items: center; gap: 5px; max-width: 140px; overflow: hidden; }
-  .grp-table tr:last-child td { border-bottom: none; }
-  .grp-table tr.qualify td { background: var(--qualify-bg); }
-  .pos-b { width: 15px; height: 15px; border-radius: 3px; font-size: 9px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
-  .pos-q { background: var(--hs-mint); color: var(--hs-dark); }
-  .pos-n { background: #f0f0f0; color: var(--text-muted); }
+  /* Knockout */
+  .ko-stage-hdr { font-size: 12px; font-weight: 700; color: var(--hs-dark); padding: 14px 0 8px; text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 2px solid var(--hs-red); margin-bottom: 8px; }
+  .ko-stage-hdr:first-child { padding-top: 0; }
+  .ko-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; margin-bottom: 4px; }
   .crest { width: 14px; height: 14px; object-fit: contain; flex-shrink: 0; }
-  .pts-bold { font-weight: 700; }
 
   /* Matches */
   .match-list { display: flex; flex-direction: column; gap: 5px; }
@@ -119,7 +108,7 @@
 <body>
 
 <div class="tabs-bar">
-  <button class="tab-btn active" id="tbtn-standings">Groups</button>
+  <button class="tab-btn active" id="tbtn-standings">Knockout</button>
   <button class="tab-btn" id="tbtn-fixtures">Fixtures</button>
   <button class="tab-btn" id="tbtn-results">Results</button>
   <button class="tab-btn" id="tbtn-live">Live <span class="live-badge" id="live-badge"></span></button>
@@ -168,7 +157,7 @@ function loadAll() {
   ]).then(function(res) {
     standingsData = res[0];
     allMatches = res[1].matches || [];
-    renderStandings();
+    renderKnockout();
     renderFixtures();
     renderResults();
     renderLive();
@@ -270,28 +259,39 @@ function setProgress(pct, transMs) {
   fill.style.width = pct + '%';
 }
 
-/* ---- Render standings ---- */
-function renderStandings() {
-  var groups = (standingsData && standingsData.standings || []).filter(function(s) { return s.type === 'TOTAL'; });
-  if (!groups.length) { document.getElementById('tab-standings').innerHTML = '<div class="loading">No standings data yet.</div>'; return; }
-  var h = '<div class="grp-grid">';
-  groups.forEach(function(g) {
-    var name = (g.group || 'Group').replace('GROUP_', 'Group ');
-    h += '<div class="grp-card"><div class="grp-hdr">' + name + '</div>';
-    h += '<table class="grp-table"><thead><tr><th colspan="2">Team</th><th>P</th><th>W</th><th>D</th><th>L</th><th>GD</th><th>Pts</th></tr></thead><tbody>';
-    (g.table || []).forEach(function(row, i) {
-      var q = i < 2;
-      var cr = row.team.crest ? '<img src="' + row.team.crest + '" class="crest" onerror="this.style.display=\'none\'">' : '';
-      var nm = row.team.shortName || row.team.name;
-      var gd = (row.goalDifference > 0 ? '+' : '') + row.goalDifference;
-      h += '<tr' + (q ? ' class="qualify"' : '') + '>';
-      h += '<td class="tn"><span class="pos-b ' + (q ? 'pos-q' : 'pos-n') + '">' + (i+1) + '</span>' + cr + nm + '</td>';
-      h += '<td>' + row.playedGames + '</td><td>' + row.won + '</td><td>' + row.draw + '</td><td>' + row.lost + '</td>';
-      h += '<td>' + gd + '</td><td class="pts-bold">' + row.points + '</td></tr>';
-    });
-    h += '</tbody></table></div>';
+/* ---- Render knockout ---- */
+var STAGE_ORDER = ['LAST_32', 'LAST_16', 'QUARTER_FINALS', 'SEMI_FINALS', 'THIRD_PLACE', 'FINAL'];
+var STAGE_LABELS = {
+  LAST_32: 'Round of 32',
+  LAST_16: 'Round of 16',
+  QUARTER_FINALS: 'Quarter-finals',
+  SEMI_FINALS: 'Semi-finals',
+  THIRD_PLACE: '3rd Place Play-off',
+  FINAL: 'Final'
+};
+
+function renderKnockout() {
+  var ko = allMatches.filter(function(m) { return m.stage && m.stage !== 'GROUP_STAGE'; });
+  if (!ko.length) { document.getElementById('tab-standings').innerHTML = '<div class="loading">No knockout matches yet. They unlock once the group stage finishes.</div>'; return; }
+
+  var byStage = {};
+  ko.forEach(function(m) { if (!byStage[m.stage]) byStage[m.stage] = []; byStage[m.stage].push(m); });
+
+  var stages = Object.keys(byStage).sort(function(a, b) {
+    var ia = STAGE_ORDER.indexOf(a), ib = STAGE_ORDER.indexOf(b);
+    if (ia === -1) ia = 999;
+    if (ib === -1) ib = 999;
+    return ia - ib;
   });
-  h += '</div><div class="legend"><span><span class="legend-dot" style="background:var(--hs-mint);border:1px solid #aee;"></span>Qualify to Round of 32</span></div>';
+
+  var h = '';
+  stages.forEach(function(s) {
+    var label = STAGE_LABELS[s] || s.replace(/_/g, ' ');
+    var matches = byStage[s].slice().sort(function(a, b) { return (a.utcDate || '').localeCompare(b.utcDate || ''); });
+    h += '<div class="ko-stage-hdr">' + label + '</div><div class="ko-grid">';
+    matches.forEach(function(m) { h += matchCard(m); });
+    h += '</div>';
+  });
   document.getElementById('tab-standings').innerHTML = h;
 }
 
@@ -344,10 +344,11 @@ function renderDays(byD, days) {
 }
 
 function matchCard(m) {
-  var hn = m.homeTeam.shortName || m.homeTeam.name || 'TBD';
-  var an = m.awayTeam.shortName || m.awayTeam.name || 'TBD';
-  var hc = m.homeTeam.crest ? '<img src="' + m.homeTeam.crest + '" class="crest" onerror="this.style.display=\'none\'">' : '';
-  var ac = m.awayTeam.crest ? '<img src="' + m.awayTeam.crest + '" class="crest" onerror="this.style.display=\'none\'">' : '';
+  var home = m.homeTeam || {}, away = m.awayTeam || {};
+  var hn = home.shortName || home.name || 'TBD';
+  var an = away.shortName || away.name || 'TBD';
+  var hc = home.crest ? '<img src="' + home.crest + '" class="crest" onerror="this.style.display=\'none\'">' : '';
+  var ac = away.crest ? '<img src="' + away.crest + '" class="crest" onerror="this.style.display=\'none\'">' : '';
   var isLive = m.status === 'IN_PLAY' || m.status === 'PAUSED' || m.status === 'HALFTIME';
   var isFin  = m.status === 'FINISHED';
   var sb = '';
