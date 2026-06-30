@@ -361,7 +361,7 @@ function renderKnockout() {
   var tp = byStage['THIRD_PLACE'];
   if (tp && tp.length) {
     html += '<div class="ko-stage-hdr" style="margin-top:20px;">3rd Place Play-off</div><div class="ko-grid">';
-    tp.forEach(function(m) { html += matchCard(m); });
+    tp.forEach(function(m) { html += '<div style="position:relative;height:' + KO_CARD_H + 'px;">' + koMatchCard(m, 0) + '</div>'; });
     html += '</div>';
   }
 
