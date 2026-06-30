@@ -71,6 +71,22 @@
   .ko-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; margin-bottom: 4px; }
   .crest { width: 14px; height: 14px; object-fit: contain; flex-shrink: 0; }
 
+  /* Bracket */
+  .ko-bracket-wrap { overflow-x: auto; padding-bottom: 12px; -webkit-overflow-scrolling: touch; }
+  .ko-cols { position: relative; }
+  .ko-svg { position: absolute; top: 0; left: 0; }
+  .ko-col { position: absolute; top: 0; width: 230px; }
+  .ko-col-hdr { font-size: 11px; font-weight: 700; color: var(--hs-dark); text-transform: uppercase; letter-spacing: 0.06em; padding-bottom: 8px; border-bottom: 2px solid var(--hs-red); margin-bottom: 10px; }
+  .ko-col-body { position: relative; }
+  .ko-match { position: absolute; left: 0; width: 100%; background: var(--card); border: 1px solid var(--border); border-radius: 7px; padding: 6px 10px; box-sizing: border-box; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+  .ko-date { display: flex; justify-content: space-between; align-items: center; font-size: 9px; color: var(--text-muted); margin-bottom: 4px; }
+  .ko-status-badge { font-size: 8px; font-weight: 700; padding: 1px 5px; border-radius: 3px; background: #f0f0f0; color: var(--text-muted); }
+  .ko-status-badge.live { background: var(--hs-red); color: #fff; }
+  .ko-team-row { display: flex; align-items: center; justify-content: space-between; font-size: 12px; padding: 2px 0; gap: 6px; }
+  .ko-team-row .nm { display: flex; align-items: center; gap: 5px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .ko-team-row.win .nm { font-weight: 700; }
+  .ko-score { font-weight: 700; flex-shrink: 0; }
+
   /* Matches */
   .match-list { display: flex; flex-direction: column; gap: 5px; }
   .day-hdr { font-size: 11px; font-weight: 700; color: var(--text-muted); padding: 12px 0 4px; text-transform: uppercase; letter-spacing: 0.05em; }
@@ -259,40 +275,121 @@ function setProgress(pct, transMs) {
   fill.style.width = pct + '%';
 }
 
-/* ---- Render knockout ---- */
-var STAGE_ORDER = ['LAST_32', 'LAST_16', 'QUARTER_FINALS', 'SEMI_FINALS', 'THIRD_PLACE', 'FINAL'];
+/* ---- Render knockout (bracket) ---- */
+var MAIN_STAGES = ['LAST_32', 'LAST_16', 'QUARTER_FINALS', 'SEMI_FINALS', 'FINAL'];
 var STAGE_LABELS = {
   LAST_32: 'Round of 32',
   LAST_16: 'Round of 16',
   QUARTER_FINALS: 'Quarter-finals',
   SEMI_FINALS: 'Semi-finals',
-  THIRD_PLACE: '3rd Place Play-off',
   FINAL: 'Final'
 };
+var KO_CARD_H = 58, KO_MIN_GAP = 14, KO_COL_W = 230, KO_COL_GAP = 44;
 
 function renderKnockout() {
-  var ko = allMatches.filter(function(m) { return m.stage && m.stage !== 'GROUP_STAGE'; });
-  if (!ko.length) { document.getElementById('tab-standings').innerHTML = '<div class="loading">No knockout matches yet. They unlock once the group stage finishes.</div>'; return; }
-
   var byStage = {};
-  ko.forEach(function(m) { if (!byStage[m.stage]) byStage[m.stage] = []; byStage[m.stage].push(m); });
-
-  var stages = Object.keys(byStage).sort(function(a, b) {
-    var ia = STAGE_ORDER.indexOf(a), ib = STAGE_ORDER.indexOf(b);
-    if (ia === -1) ia = 999;
-    if (ib === -1) ib = 999;
-    return ia - ib;
+  allMatches.forEach(function(m) {
+    if (m.stage && m.stage !== 'GROUP_STAGE') { (byStage[m.stage] = byStage[m.stage] || []).push(m); }
   });
 
-  var h = '';
-  stages.forEach(function(s) {
-    var label = STAGE_LABELS[s] || s.replace(/_/g, ' ');
-    var matches = byStage[s].slice().sort(function(a, b) { return (a.utcDate || '').localeCompare(b.utcDate || ''); });
-    h += '<div class="ko-stage-hdr">' + label + '</div><div class="ko-grid">';
-    matches.forEach(function(m) { h += matchCard(m); });
-    h += '</div>';
+  var rounds = MAIN_STAGES.filter(function(s) { return byStage[s] && byStage[s].length; });
+  if (!rounds.length) { document.getElementById('tab-standings').innerHTML = '<div class="loading">No knockout matches yet. They unlock once the group stage finishes.</div>'; return; }
+
+  // ---- vertical positions, centred between each round's feeder pair ----
+  var positions = {};
+  rounds.forEach(function(stage, idx) {
+    var matches = byStage[stage];
+    if (idx === 0) {
+      var arr = []; var y = 0;
+      matches.forEach(function() { arr.push(y); y += KO_CARD_H + KO_MIN_GAP; });
+      positions[stage] = arr;
+    } else {
+      var prevStage = rounds[idx - 1];
+      var prevPos = positions[prevStage];
+      var prevMatches = byStage[prevStage];
+      var arr2 = [];
+      if (prevMatches.length === matches.length * 2) {
+        for (var i = 0; i < matches.length; i++) arr2.push((prevPos[2 * i] + prevPos[2 * i + 1]) / 2);
+      } else {
+        var totalH = prevPos.length ? prevPos[prevPos.length - 1] + KO_CARD_H : matches.length * (KO_CARD_H + KO_MIN_GAP);
+        var step = matches.length > 1 ? (totalH - KO_CARD_H) / (matches.length - 1) : 0;
+        for (var j = 0; j < matches.length; j++) arr2.push(j * step);
+      }
+      positions[stage] = arr2;
+    }
   });
-  document.getElementById('tab-standings').innerHTML = h;
+
+  var maxH = 0;
+  rounds.forEach(function(s) { var arr = positions[s]; var h2 = arr.length ? arr[arr.length - 1] + KO_CARD_H : 0; if (h2 > maxH) maxH = h2; });
+
+  // ---- columns ----
+  var colsHtml = '';
+  rounds.forEach(function(stage, idx) {
+    var left = idx * (KO_COL_W + KO_COL_GAP);
+    colsHtml += '<div class="ko-col" style="left:' + left + 'px;"><div class="ko-col-hdr">' + STAGE_LABELS[stage] + '</div><div class="ko-col-body" style="height:' + maxH + 'px;">';
+    byStage[stage].forEach(function(m, i) { colsHtml += koMatchCard(m, positions[stage][i]); });
+    colsHtml += '</div></div>';
+  });
+
+  // ---- connector lines ----
+  var svgLines = [];
+  for (var r = 1; r < rounds.length; r++) {
+    var prevStage = rounds[r - 1], stage = rounds[r];
+    var prevMatches = byStage[prevStage], curMatches = byStage[stage];
+    if (prevMatches.length !== curMatches.length * 2) continue;
+    var prevPos = positions[prevStage], curPos = positions[stage];
+    var xRightPrev = (r - 1) * (KO_COL_W + KO_COL_GAP) + KO_COL_W;
+    var xLeftCur = r * (KO_COL_W + KO_COL_GAP);
+    var midX = xRightPrev + KO_COL_GAP / 2;
+    for (var i = 0; i < curMatches.length; i++) {
+      var y1 = prevPos[2 * i] + KO_CARD_H / 2, y2 = prevPos[2 * i + 1] + KO_CARD_H / 2, y3 = curPos[i] + KO_CARD_H / 2;
+      svgLines.push(koLine(xRightPrev, y1, midX, y1));
+      svgLines.push(koLine(xRightPrev, y2, midX, y2));
+      svgLines.push(koLine(midX, y1, midX, y2));
+      svgLines.push(koLine(midX, y3, xLeftCur, y3));
+    }
+  }
+  var totalWidth = rounds.length * KO_COL_W + (rounds.length - 1) * KO_COL_GAP;
+  var svgHtml = '<svg class="ko-svg" width="' + totalWidth + '" height="' + (maxH || 1) + '">' + svgLines.join('') + '</svg>';
+
+  var html = '<div class="ko-bracket-wrap"><div class="ko-cols" style="height:' + maxH + 'px;width:' + totalWidth + 'px;">' + svgHtml + colsHtml + '</div></div>';
+
+  var tp = byStage['THIRD_PLACE'];
+  if (tp && tp.length) {
+    html += '<div class="ko-stage-hdr" style="margin-top:20px;">3rd Place Play-off</div><div class="ko-grid">';
+    tp.forEach(function(m) { html += matchCard(m); });
+    html += '</div>';
+  }
+
+  document.getElementById('tab-standings').innerHTML = html;
+}
+
+function koLine(x1, y1, x2, y2) {
+  return '<line x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 + '" stroke="#cfd8dc" stroke-width="2"/>';
+}
+
+function koMatchCard(m, top) {
+  var home = m.homeTeam || {}, away = m.awayTeam || {};
+  var hn = home.shortName || home.name || 'TBD';
+  var an = away.shortName || away.name || 'TBD';
+  var hc = home.crest ? '<img src="' + home.crest + '" class="crest" onerror="this.style.display=\'none\'">' : '';
+  var ac = away.crest ? '<img src="' + away.crest + '" class="crest" onerror="this.style.display=\'none\'">' : '';
+  var isFin = m.status === 'FINISHED';
+  var isLive = m.status === 'IN_PLAY' || m.status === 'PAUSED' || m.status === 'HALFTIME';
+  var hs = null, as = null;
+  if (m.score && m.score.fullTime) { hs = m.score.fullTime.home; as = m.score.fullTime.away; }
+  var hwin = isFin && hs !== null && as !== null && hs > as;
+  var awin = isFin && hs !== null && as !== null && as > hs;
+  var statusLbl, statusCls = 'ko-status-badge';
+  if (isFin) { statusLbl = 'FT'; }
+  else if (isLive) { statusLbl = m.status === 'HALFTIME' ? 'HT' : 'LIVE'; statusCls += ' live'; }
+  else { statusLbl = m.utcDate ? new Date(m.utcDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Luxembourg' }) : '--:--'; }
+  var dateLbl = m.utcDate ? new Date(m.utcDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : 'TBD';
+  return '<div class="ko-match" style="top:' + top + 'px;height:' + KO_CARD_H + 'px;">'
+    + '<div class="ko-date"><span>' + dateLbl + '</span><span class="' + statusCls + '">' + statusLbl + '</span></div>'
+    + '<div class="ko-team-row' + (hwin ? ' win' : '') + '"><span class="nm">' + hc + hn + '</span><span class="ko-score">' + (hs !== null && hs !== undefined ? hs : '-') + '</span></div>'
+    + '<div class="ko-team-row' + (awin ? ' win' : '') + '"><span class="nm">' + ac + an + '</span><span class="ko-score">' + (as !== null && as !== undefined ? as : '-') + '</span></div>'
+    + '</div>';
 }
 
 /* ---- Render fixtures ---- */
